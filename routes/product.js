@@ -30,9 +30,11 @@ router.get('/products', (req, res) => {
 });
 router.get('/products/update', (req, res) => {
   res.render('index', { message: 'Updating' });
+  // Wrapping a Promise in a Promise...
   const getProducts = new Promise(async function(resolve, reject) {
     bigCommerce.get('/catalog/products').then(data => {
       Arr = data.data;
+      // Assign an array for the ids that the BC API pulls for products
       let pArr = [];
       for ([key, value] of Object.entries(Arr)) {
         if (value.id) {
@@ -40,89 +42,94 @@ router.get('/products/update', (req, res) => {
         }
       }
       console.log(pArr);
-      e();
-      async function e() {
-        for (i = 0; i < pArr.length; i++) {
-          await bigCommerce.get('/catalog/products/' + pArr[i]).then(data => {
-            prodArr = [];
-            prodArr = data.data;
-            pId = prodArr.id;
-            console.log(pId);
-            Wishlist.collection.find(
-              { 'items.product_id': pId },
-              null,
-              function(err, docs) {
-                if (docs) {
-                  wIdArr = [];
-                  docs.forEach(element => {
-                    for ([key, value] of Object.entries(element)) {
-                      if (key === 'id' && wIdArr.includes(value) != true) {
-                        wIdArr.push(value);
-                      }
-                    }
-                    Product.collection.findOne({ id: pId }, null, function(
+      // Tried wrapping this in a promise due to issues seen when pulling products multiple times, which is when the Array above was introduced, this can possibly be removed.
+      // Reading through it, with my new approach this can probably be greatly reduced.
+
+      for (i = 0; i < pArr.length; i++) {
+        bigCommerce.get('/catalog/products/' + pArr[i]).then(data => {
+          prodArr = [];
+          prodArr = data.data;
+          pId = prodArr.id;
+          console.log(pId);
+          // Compare the product IDs in the BC Catalog to the local mongo DB's wishlists
+          Wishlist.collection.find({ 'items.product_id': pId }, null, function(
+            err,
+            docs
+          ) {
+            if (docs) {
+              // Assign Array for each product ID found that's in a Wishlist
+              wIdArr = [];
+              docs.forEach(element => {
+                for ([key, value] of Object.entries(element)) {
+                  if (key === 'id' && wIdArr.includes(value) != true) {
+                    wIdArr.push(value);
+                  }
+                }
+                // Check if local mongo DB already has this product ID saved
+                Product.collection.findOne({ id: pId }, null, function(
+                  err,
+                  docs
+                ) {
+                  if (err) throw err;
+                  if (docs != null) {
+                    console.log(pId + 'LINE 169');
+                    console.log(wIdArr + 'LINE 170');
+                    // This might be the source of duplication, forEach wID Array, check if the Product ID has the wishlist saved... Logic doesn't seem to indicate that though, this isn't being run multiple times from what I can tell on first glance/recollection.
+                    wIdArr.forEach(element => {
+                      console.log(element);
+                      Product.collection.findOne(
+                        { id: pId, 'wishlists.id': element },
+                        null,
+                        function(err, docs) {
+                          if (err) throw err;
+                          if (docs == null) {
+                            // This point does seem to run correctly when it is, the wishlists are added as individual objects with an ID appropriately assigned.
+                            Product.collection.findOneAndUpdate(
+                              { id: pId },
+                              { $push: { wishlists: { id: element } } },
+                              function(err, docs) {
+                                if (err) throw err;
+                                else {
+                                  console.log(
+                                    'Number of inserted Products: ' +
+                                      docs.insertedCount
+                                  );
+                                }
+                              }
+                            );
+                          }
+                          // This point also seems to run correctly when applicable.
+                          if (docs != null) {
+                            console.log(
+                              element + ' wishlist already saved to product'
+                            );
+                          }
+                        }
+                      );
+                    });
+                  }
+                  // No product found at all, that exists in a wishlist's items? Create it with all the data. Lots of data.
+                  if (docs == null) {
+                    Product.collection.insertOne(prodArr, null, function(
                       err,
                       docs
                     ) {
                       if (err) throw err;
-                      if (docs != null) {
-                        console.log(pId + 'LINE 169');
-                        console.log(wIdArr + 'LINE 170');
-                        wIdArr.forEach(element => {
-                          console.log(element);
-                          Product.collection.findOne(
-                            { id: pId, 'wishlists.id': element },
-                            null,
-                            function(err, docs) {
-                              if (err) throw err;
-                              if (docs == null) {
-                                Product.collection.findOneAndUpdate(
-                                  { id: pId },
-                                  { $push: { wishlists: { id: element } } },
-                                  function(err, docs) {
-                                    if (err) throw err;
-                                    else {
-                                      console.log(
-                                        'Number of inserted Products: ' +
-                                          docs.insertedCount
-                                      );
-                                    }
-                                  }
-                                );
-                              }
-                              if (docs != null) {
-                                console.log(
-                                  element + ' wishlist already saved to product'
-                                );
-                              }
-                            }
-                          );
-                        });
-                      }
-                      if (docs == null) {
-                        Product.collection.insertOne(prodArr, null, function(
-                          err,
-                          docs
-                        ) {
-                          if (err) throw err;
-                          if (docs) {
-                            console.log(
-                              'Number of inserted Products: ' +
-                                docs.insertedCount
-                            );
-                          }
-                        });
+                      if (docs) {
+                        console.log(
+                          'Number of inserted Products: ' + docs.insertedCount
+                        );
                       }
                     });
-                  });
-                  console.log(wIdArr);
-                } else {
-                  return reject(err);
-                }
-              }
-            );
+                  }
+                });
+              });
+              console.log(wIdArr);
+            } else {
+              return reject(err);
+            }
           });
-        }
+        });
       }
     });
     return resolve();
@@ -131,6 +138,8 @@ router.get('/products/update', (req, res) => {
   });
   getProducts;
 });
+
+// None of the below is used and routes are broken.
 router.post('/products/add', (req, res) => {
   let message = '';
   let id = req.body.id;

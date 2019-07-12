@@ -57,6 +57,7 @@ app.use(productRoute);
 app.get('/', function(req, res) {
   try {
     console.log(req + 'requestVal');
+    // Pass these values to handlebars
     Wishlist.find({}, (err, allWishlists) => {
       if (err) {
         console.log(err);
@@ -78,6 +79,8 @@ app.get('/', function(req, res) {
     console.log(err);
   }
 });
+
+// The following routes aren't configured/used
 
 router.get('/auth', (req, res, next) => {
   bigCommerce
